@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Проекты</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-primary">
+  <div class="container">
+    <span class="navbar-brand fw-bold">Проекты</span>
+    <div class="d-flex gap-2 align-items-center">
+      <a href="/invitations.html" class="btn btn-outline-light btn-sm">Приглашения</a>
+      <button id="logoutBtn" class="btn btn-outline-light btn-sm">Выйти</button>
+      <button id="openCreateProject" type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#createProjectModal">
+        Создать проект
+      </button>
+    </div>
+  </div>
+</nav>
+
+<div class="container mt-4">
+
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+    <h3 class="mb-0">Ваши проекты</h3>
+  </div>
+
+  <div id="projectsAlert" class="alert alert-danger d-none mt-3" role="alert"></div>
+
+  <div id="projectsSpinner" class="text-center mt-3 d-none">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Загрузка...</span>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-2" id="projectGrid"></div>
+</div>
+
+<div class="modal fade" id="createProjectModal" tabindex="-1" aria-labelledby="createProjectModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="createProjectForm" class="needs-validation" novalidate>
+        <div class="modal-header">
+          <h5 class="modal-title" id="createProjectModalLabel">Новый проект</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="projectName" class="form-label">Название</label>
+            <input type="text" class="form-control" id="projectName" required>
+            <div class="invalid-feedback">
+              Укажите название проекта.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="projectDeadline" class="form-label">Дедлайн</label>
+            <input type="datetime-local" class="form-control" id="projectDeadline">
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button id="createProjectBtn" type="submit" class="btn btn-primary">
+            <span id="createProjectSpinner" class="spinner-border spinner-border-sm me-2 d-none" role="status" aria-hidden="true"></span>
+            Создать
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/projects.js"></script>
+
+</body>
+</html>
