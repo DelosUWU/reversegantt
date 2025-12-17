@@ -8,3 +8,5 @@
   docker compose --build
   ```
 
+## Как пользоваться системой ##
+* После запуска перейти в <http://localhost:8000/index.html>
