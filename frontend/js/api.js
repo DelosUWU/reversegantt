@@ -82,6 +82,13 @@ async function fetchWithAuth(path, options = {}) {
     }
 
     const response = await fetch(`${API_URL}${path}`, fetchOptions);
+
+    if (response.status === 401) {
+        removeToken();
+        window.location.href = "/index.html";
+        throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
+    }
+
     const payload = await response.json().catch(() => null);
     return { response, payload };
 }

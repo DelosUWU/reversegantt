@@ -261,7 +261,15 @@ def create_task(
     
     if not crud.can_access_project(db, payload.project_id, current_user.id):
         raise HTTPException(status_code=403, detail="Access denied to project")
-    
+    project = crud.get_project(db, payload.project_id)
+
+    if project and project.final_deadline and payload.deadline:
+        if payload.deadline > project.final_deadline:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Task deadline cannot be later than project deadline ({project.final_deadline.strftime('%Y-%m-%d')})"
+            )
+
     data = payload.dict()
     if not data.get("assigned_to_id"):
         data["assigned_to_id"] = current_user.id
@@ -322,6 +330,14 @@ def edit_task(
             membership = crud.get_membership(db, t.project_id, data["assigned_to_id"])
             if not membership and crud.get_project(db, t.project_id).owner_id != data["assigned_to_id"]:
                 raise HTTPException(status_code=400, detail="Assignee must be a project member or owner")
+    if t.project_id and payload.deadline:
+        project = crud.get_project(db, t.project_id)
+        if project and project.final_deadline:
+            if payload.deadline > project.final_deadline:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Task deadline cannot be later than project deadline ({project.final_deadline.strftime('%Y-%m-%d')})"
+                )
     t = crud.edit_task(db, task_id, **data)
     if not t:
         raise HTTPException(status_code=404, detail="Task not found")
