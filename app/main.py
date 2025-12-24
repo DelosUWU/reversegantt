@@ -264,7 +264,7 @@ def create_task(
     project = crud.get_project(db, payload.project_id)
 
     if project and project.final_deadline and payload.deadline:
-        if payload.deadline > project.final_deadline:
+        if payload.deadline.date() > project.final_deadline.date():
             raise HTTPException(
                 status_code=400,
                 detail=f"Task deadline cannot be later than project deadline ({project.final_deadline.strftime('%Y-%m-%d')})"
@@ -333,7 +333,7 @@ def edit_task(
     if t.project_id and payload.deadline:
         project = crud.get_project(db, t.project_id)
         if project and project.final_deadline:
-            if payload.deadline > project.final_deadline:
+            if payload.deadline.date() > project.final_deadline.date():
                 raise HTTPException(
                     status_code=400,
                     detail=f"Task deadline cannot be later than project deadline ({project.final_deadline.strftime('%Y-%m-%d')})"
