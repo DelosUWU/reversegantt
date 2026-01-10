@@ -1,0 +1,93 @@
+
+.base_job:
+
+  tags:
+    - yandex-cloud
+    - docker
+
+
+  before_script:
+    - echo "========================================="
+    - echo "=== Job Information ==="
+    - echo "Job name: $CI_JOB_NAME"
+    - echo "Pipeline ID: $CI_PIPELINE_ID"
+    - echo "Commit SHA: $CI_COMMIT_SHORT_SHA"
+    - echo "Commit message: $CI_COMMIT_MESSAGE"
+    - echo "Branch: $CI_COMMIT_REF_NAME"
+    - echo "Runner: $CI_RUNNER_DESCRIPTION"
+    - echo "User: $GITLAB_USER_LOGIN"
+    - echo "========================================="
+
+
+.python_job:
+  extends: .base_job
+  image: python:3.11-slim
+
+  before_script:
+
+    - echo "=== Python Environment ==="
+    - python --version
+    - pip --version
+    - echo "Working directory: $(pwd)"
+    - echo "=========================="
+
+    - pip install --upgrade pip setuptools wheel
+
+    - |
+      if [ -d "$PIP_CACHE_DIR" ] && [ "$(ls -A $PIP_CACHE_DIR 2>/dev/null)" ]; then
+        echo "Restoring pip cache from $PIP_CACHE_DIR..."
+        pip install --cache-dir "$PIP_CACHE_DIR" -r requirements.txt || true
+      fi
+
+    - pip install -r requirements.txt
+
+
+.docker_job:
+  extends: .base_job
+  image: docker:24.0.5
+
+
+  services:
+    - docker:24.0.5-dind
+
+  variables:
+
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+
+  before_script:
+    - echo "=== Docker Environment ==="
+    - docker --version
+    - docker info | head -n 20
+    - echo "DOCKER_HOST: $DOCKER_HOST"
+    - echo "=========================="
+
+    - until docker info; do sleep 1; done
+
+
+.deploy_job:
+  extends: .base_job
+  image: alpine:latest
+
+  before_script:
+    - echo "=== Deploy Environment ==="
+    - echo "Deploying to: $CI_ENVIRONMENT_NAME"
+    - echo "Deploy URL: $CI_ENVIRONMENT_URL"
+    - echo "Deploy target: $DEPLOY_TARGET"
+    - echo "=========================="
+    - apk add --no-cache curl bash docker-cli
+
+.artifacts_job:
+  extends: .base_job
+
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - reports/
+    reports:
+
+      junit: reports/junit.xml
+      cobertura: reports/coverage.xml

@@ -1,0 +1,47 @@
+
+include:
+  - local: '.gitlab-ci/templates.yml'
+  - local: '.gitlab-ci/build.yml'
+  - local: '.gitlab-ci/test.yml'
+  - local: '.gitlab-ci/security.yml'
+  - local: '.gitlab-ci/deploy.yml'
+
+
+stages:
+  - validate
+  - lint
+  - test
+  - security
+  - build
+  - deploy-test
+  - deploy-prod
+  - rollback
+
+
+variables:
+
+  PYTHON_VERSION: "3.11"
+
+
+  PYTHON_IMAGE: "python:3.11-slim"
+
+
+  IMAGE_NAME: "reversegantt"
+
+
+  CI_REGISTRY: "cr.yandex"
+
+
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+  DEPLOY_ENABLED: "true"
+
+
+cache:
+  key:
+    files:
+      - requirements.txt
+      - app/requirements.txt
+  paths:
+    - .cache/pip
+    - .pip-cache

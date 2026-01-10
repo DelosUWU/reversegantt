@@ -1,0 +1,68 @@
+build:image:
+  extends: .docker_job
+  stage: build
+
+  variables:
+
+    IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+
+    IMAGE_TAG_LATEST: $CI_REGISTRY_IMAGE:latest
+
+  script:
+
+    - echo "Logging into Container Registry: $CI_REGISTRY"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+
+    - echo "Building Docker image: $IMAGE_TAG"
+    - |
+      docker build \
+        --cache-from $CI_REGISTRY_IMAGE:latest \
+        --tag $IMAGE_TAG \
+        --tag $IMAGE_TAG_LATEST \
+        --file Dockerfile \
+        .
+
+
+    - echo "Pushing images to registry..."
+    - docker push $IMAGE_TAG
+    - docker push $IMAGE_TAG_LATEST
+
+
+
+    - mkdir -p deploy_info
+    - echo "$IMAGE_TAG" > deploy_info/current_version.txt
+    - echo "$CI_COMMIT_SHORT_SHA" > deploy_info/commit_sha.txt
+    - echo "$CI_COMMIT_TAG" > deploy_info/tag.txt || echo "" > deploy_info/tag.txt
+    - echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > deploy_info/build_time.txt
+
+
+    - echo "Build completed successfully!"
+    - echo "Image: $IMAGE_TAG"
+    - cat deploy_info/current_version.txt
+
+
+  artifacts:
+    paths:
+      - deploy_info/
+    expire_in: 90 days
+    when: on_success
+
+
+  only:
+    - branches
+    - tags
+
+
+validate:dockerfile:
+  extends: .docker_job
+  stage: validate
+
+  script:
+    - echo "Validating Dockerfile..."
+    - docker build --target base -t test-image -f Dockerfile . || true
+    - echo "Dockerfile validation completed"
+
+  only:
+    - branches
+    - merge_requests

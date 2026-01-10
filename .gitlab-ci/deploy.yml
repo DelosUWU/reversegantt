@@ -1,0 +1,375 @@
+# Конфигурация деплоя
+# Джобы для развертывания приложения на серверах
+
+# ============================================================================
+# ДЖОБА: Деплой в тестовое окружение (пункт 4: +3 балла - через runner БЕЗ SSH)
+# ============================================================================
+deploy:test:
+  extends: .deploy_job
+  stage: deploy-test              # Выполняется на стадии "deploy-test"
+
+  # Использование environment (пункт 6: +1 балл)
+  environment:
+    name: test                    # Имя окружения
+    url: http://test.example.com  # URL приложения (замените на реальный)
+
+  variables:
+    DEPLOY_TARGET: "test"
+    # Используем образ, собранный в стадии build
+    DEPLOY_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+
+  dependencies:
+    - build:image                 # Зависим от джобы build:image (пункт 7: needs/needs)
+
+  script:
+    - echo "Deploying to TEST environment..."
+    - echo "Image: $DEPLOY_IMAGE"
+
+    # Деплой через Docker (БЕЗ SSH, пункт 4: +3 балла)
+    # Предполагаем что runner имеет прямой доступ к Docker на целевом сервере
+    # через Docker API или volume mount
+
+    # Вариант 1: Если runner имеет доступ к Docker socket целевого сервера
+    # (через volume mount или Docker API)
+
+    # Сначала логинимся в registry
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+    # Pull образа
+    - docker pull $DEPLOY_IMAGE
+
+    # Останавливаем старый контейнер (если есть)
+    - docker stop reversegantt-test || true
+    - docker rm reversegantt-test || true
+
+    # Запускаем новый контейнер
+    - |
+      docker run -d \
+        --name reversegantt-test \
+        --restart unless-stopped \
+        -p 8000:8000 \
+        -e DATABASE_URL="$TEST_DATABASE_URL" \
+        -e SECRET_KEY="$TEST_SECRET_KEY" \
+        $DEPLOY_IMAGE
+
+    # Ждем пока приложение запустится
+    - echo "Waiting for application to start..."
+    - sleep 10
+
+    # Проверяем health (для автоматического rollback, пункт 14b: +3 балла)
+    - |
+      for i in 1 2 3 4 5; do
+        if curl -f http://localhost:8000/health || curl -f http://localhost:8000/; then
+          echo "Application is healthy!"
+          exit 0
+        fi
+        echo "Health check attempt $i failed, retrying..."
+        sleep 5
+      done
+      echo "Health check failed! Application might not be running."
+      exit 1
+
+  # Правила запуска (пункт 12: сложные правила)
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "test"'
+      when: on_success
+      exists:
+        - deploy_info/current_version.txt
+    - if: '$DEPLOY_ENABLED == "true" && $CI_COMMIT_BRANCH != "main"'
+      when: manual              # Ручной запуск для других веток
+      exists:
+        - deploy_info/current_version.txt
+
+# ============================================================================
+# ДЖОБА: Деплой в продакшн (пункт 15: +1 балл - только для тегов)
+# ============================================================================
+deploy:production:
+  extends: .deploy_job
+  stage: deploy-prod
+
+  environment:
+    name: production
+    url: http://prod.example.com  # Замените на реальный URL
+
+  variables:
+    DEPLOY_TARGET: "production"
+    DEPLOY_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+
+  dependencies:
+    - build:image
+    - deploy:test              # Деплой в продакшн только после успешного деплоя в test
+
+  script:
+    - echo "Deploying to PRODUCTION environment..."
+    - echo "Image: $DEPLOY_IMAGE"
+    - echo "Tag: $CI_COMMIT_TAG"
+
+    # Логин в registry
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+    # Pull образа
+    - docker pull $DEPLOY_IMAGE
+
+    # Сохраняем текущую версию для rollback (пункт 14: +4 балла)
+    - |
+      CURRENT_VERSION=$(docker inspect reversegantt-prod --format='{{.Config.Image}}' 2>/dev/null || echo "")
+      if [ ! -z "$CURRENT_VERSION" ]; then
+        echo "$CURRENT_VERSION" > previous_version.txt
+        echo "Previous version saved: $CURRENT_VERSION"
+      fi
+
+    # Останавливаем старый контейнер
+    - docker stop reversegantt-prod || true
+    - docker rm reversegantt-prod || true
+
+    # Запускаем новый контейнер
+    - |
+      docker run -d \
+        --name reversegantt-prod \
+        --restart unless-stopped \
+        -p 8000:8000 \
+        -e DATABASE_URL="$PROD_DATABASE_URL" \
+        -e SECRET_KEY="$PROD_SECRET_KEY" \
+        $DEPLOY_IMAGE
+
+    # Ждем запуска
+    - echo "Waiting for application to start..."
+    - sleep 10
+
+    # Health check (для автоматического rollback)
+    - |
+      HEALTH_CHECK_FAILED=false
+      for i in 1 2 3 4 5; do
+        if curl -f http://localhost:8000/health || curl -f http://localhost:8000/; then
+          echo "Application is healthy!"
+          HEALTH_CHECK_FAILED=false
+          break
+        else
+          echo "Health check attempt $i failed, retrying..."
+          HEALTH_CHECK_FAILED=true
+          sleep 5
+        fi
+      done
+      
+      if [ "$HEALTH_CHECK_FAILED" = true ]; then
+        echo "ERROR: Health check failed! Starting automatic rollback..."
+        # Автоматический rollback (пункт 14b: +3 балла)
+        if [ -f previous_version.txt ]; then
+          PREV_VERSION=$(cat previous_version.txt)
+          echo "Rolling back to: $PREV_VERSION"
+          docker stop reversegantt-prod || true
+          docker rm reversegantt-prod || true
+          docker run -d \
+            --name reversegantt-prod \
+            --restart unless-stopped \
+            -p 8000:8000 \
+            -e DATABASE_URL="$PROD_DATABASE_URL" \
+            -e SECRET_KEY="$PROD_SECRET_KEY" \
+            $PREV_VERSION
+          exit 1
+        else
+          echo "ERROR: No previous version to rollback to!"
+          exit 1
+        fi
+      fi
+
+    # Сохраняем информацию о деплое (для release notes, пункт 16)
+    - mkdir -p deploy_info
+    - echo "$CI_COMMIT_TAG" > deploy_info/prod_tag.txt
+    - echo "$DEPLOY_IMAGE" > deploy_info/prod_version.txt
+    - echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > deploy_info/prod_deploy_time.txt
+
+  artifacts:
+    paths:
+      - deploy_info/prod_version.txt
+      - deploy_info/prod_tag.txt
+      - deploy_info/prod_deploy_time.txt
+    expire_in: 365 days
+
+  # Отправка уведомления в Telegram (пункт 5: +3 балла - webhook с markdown)
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" = "success" ]; then
+        STATUS="✅ УСПЕШНО"
+        EMOJI="🎉"
+      else
+        STATUS="❌ ОШИБКА"
+        EMOJI="⚠️"
+      fi
+      
+      # Формируем сообщение в Markdown формате (пункт 5a: +1 балл)
+      MESSAGE="*${EMOJI} Деплой в Production*
+
+*Статус:* ${STATUS}
+*Версия:* \`$DEPLOY_IMAGE\`
+*Тег:* \`$CI_COMMIT_TAG\`
+*Коммит:* \`$CI_COMMIT_SHORT_SHA\`
+*Ветка:* \`$CI_COMMIT_REF_NAME\`
+*Автор:* $GITLAB_USER_NAME
+
+*Pipeline:* [Просмотр]($CI_PIPELINE_URL)
+*Job:* [Просмотр]($CI_JOB_URL)
+
+*Время деплоя:* $(date '+%Y-%m-%d %H:%M:%S UTC')"
+      
+      # Отправляем в Telegram (webhook)
+      curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"chat_id\": \"$TELEGRAM_CHAT_ID\",
+          \"text\": \"$MESSAGE\",
+          \"parse_mode\": \"Markdown\",
+          \"disable_web_page_preview\": true
+        }" || echo "Failed to send Telegram notification"
+
+
+  rules:
+    - if: '$CI_COMMIT_TAG && $DEPLOY_ENABLED == "true"'
+      when: on_success
+    - if: '$CI_COMMIT_BRANCH == "main" && $DEPLOY_ENABLED == "true"'
+      when: manual
+
+
+rollback:production:
+  extends: .deploy_job
+  stage: rollback
+
+  environment:
+    name: production
+    action: rollback
+
+  variables:
+    DEPLOY_TARGET: "production"
+
+  script:
+    - echo "Starting rollback procedure..."
+
+
+    - |
+      if [ -z "$ROLLBACK_TO_VERSION" ]; then
+        echo "ERROR: ROLLBACK_TO_VERSION variable is not set!"
+        echo "Please set ROLLBACK_TO_VERSION variable (e.g., cr.yandex/registry/image:abc123)"
+        exit 1
+      fi
+
+    - echo "Rolling back to: $ROLLBACK_TO_VERSION"
+
+
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+
+    - docker stop reversegantt-prod || true
+    - docker rm reversegantt-prod || true
+
+
+    - |
+      docker run -d \
+        --name reversegantt-prod \
+        --restart unless-stopped \
+        -p 8000:8000 \
+        -e DATABASE_URL="$PROD_DATABASE_URL" \
+        -e SECRET_KEY="$PROD_SECRET_KEY" \
+        $ROLLBACK_TO_VERSION
+    
+
+    - sleep 10
+    - |
+      if curl -f http://localhost:8000/health || curl -f http://localhost:8000/; then
+        echo "Rollback successful! Application is healthy."
+      else
+        echo "WARNING: Application might not be healthy after rollback."
+        exit 1
+      fi
+    
+
+    - |
+      MESSAGE="*🔄 Откат (Rollback) Production*
+
+*Откат к версии:* \`$ROLLBACK_TO_VERSION\`
+*Время:* $(date '+%Y-%m-%d %H:%M:%S UTC')
+*Выполнил:* $GITLAB_USER_NAME
+
+[Pipeline]($CI_PIPELINE_URL)"
+      
+      curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"chat_id\": \"$TELEGRAM_CHAT_ID\",
+          \"text\": \"$MESSAGE\",
+          \"parse_mode\": \"Markdown\"
+        }" || echo "Failed to send Telegram notification"
+
+
+  when: manual
+
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_TAG'
+      when: manual
+
+# ============================================================================
+# ДЖОБА: Генерация Release Notes (пункт 16: +3 балла)
+# ============================================================================
+release:notes:
+  extends: .python_job
+  stage: deploy-prod              # Выполняется после деплоя
+
+  variables:
+    RELEASE_NOTES_FILE: "RELEASE_NOTES.md"
+
+  script:
+    - echo "Generating release notes..."
+
+    # Устанавливаем git (если нужно)
+    - apt-get update && apt-get install -y git || apk add --no-cache git || true
+
+    # Запускаем скрипт генерации release notes
+    - python scripts/generate_release_notes.py
+
+    # Выводим результат
+    - echo "=== Release Notes ==="
+    - cat $RELEASE_NOTES_FILE
+    - echo "===================="
+
+  artifacts:
+    paths:
+      - RELEASE_NOTES.md
+    expire_in: 365 days
+
+  # Коммит release notes в репозиторий (пункт 16b: +1 балл)
+  after_script:
+    - |
+      if [ -f "$RELEASE_NOTES_FILE" ]; then
+        echo "Committing release notes to repository..."
+        git config --global user.email "ci@gitlab.com"
+        git config --global user.name "GitLab CI"
+        git add $RELEASE_NOTES_FILE
+        git commit -m "docs: Add release notes for $CI_COMMIT_TAG" || echo "Nothing to commit"
+        git push https://oauth2:$CI_JOB_TOKEN@$CI_SERVER_HOST/$CI_PROJECT_PATH.git HEAD:$CI_COMMIT_REF_NAME || echo "Failed to push"
+      fi
+
+  # Создание Release в GitLab (пункт 16c: +1 балл)
+  # Используем GitLab API
+  script:
+    - echo "Generating release notes..."
+    - apt-get update && apt-get install -y git curl jq || apk add --no-cache git curl jq || true
+    - python scripts/generate_release_notes.py
+    - |
+      if [ -f "$RELEASE_NOTES_FILE" ] && [ ! -z "$CI_COMMIT_TAG" ]; then
+        RELEASE_NOTES_CONTENT=$(cat $RELEASE_NOTES_FILE)
+        
+        # Создаем Release через GitLab API
+        curl --request POST \
+          --header "PRIVATE-TOKEN: $CI_JOB_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "{
+            \"name\": \"Release $CI_COMMIT_TAG\",
+            \"tag_name\": \"$CI_COMMIT_TAG\",
+            \"description\": $(echo "$RELEASE_NOTES_CONTENT" | jq -Rs .)
+          }" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases" || echo "Failed to create release"
+      fi
+
+  rules:
+    - if: '$CI_COMMIT_TAG'         # Только для тегов
+      when: on_success

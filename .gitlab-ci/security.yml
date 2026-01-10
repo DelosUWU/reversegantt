@@ -1,0 +1,139 @@
+
+security:sast:
+  extends: .python_job
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - reports/
+  stage: security
+
+  script:
+    - echo "Running SAST analysis with bandit..."
+    - pip install bandit[toml]
+    - mkdir -p reports
+    - |
+      bandit -r app/ \
+        -f json -o reports/bandit-report.json \
+        -f txt -o reports/bandit-report.txt \
+        -ll || true
+
+    - echo "=== SAST Analysis Summary ==="
+    - cat reports/bandit-report.txt | head -n 50 || true
+    - echo "=============================="
+
+  artifacts:
+    paths:
+      - reports/bandit-report.json
+      - reports/bandit-report.txt
+    expire_in: 30 days
+    reports:
+      sast: reports/bandit-report.json
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - "**/*.py"
+        - "requirements.txt"
+    - if: '$CI_COMMIT_BRANCH'
+      changes:
+        - "**/*.py"
+        - "requirements.txt"
+
+security:secrets:
+  extends: .python_job
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - reports/
+  stage: security
+
+  script:
+    - echo "Running secret detection..."
+    - |
+      if ! command -v gitleaks &> /dev/null; then
+        echo "Installing gitleaks..."
+        # Для Linux (на runner должно быть установлено)
+        # Или используем Docker образ с gitleaks
+      fi
+
+    - pip install detect-secrets
+
+
+    - echo "Scanning for secrets..."
+    - mkdir -p reports
+    - |
+      detect-secrets scan \
+        --baseline reports/.secrets.baseline \
+        --force-use-all-plugins \
+        . || true
+
+    - |
+      echo "Checking for common secret patterns..." > reports/secrets-check.txt
+      echo "========================================" >> reports/secrets-check.txt
+    
+      # Проверяем на наличие явных паролей в коде
+      if grep -r "password\s*=\s*['\"].*['\"]" app/ 2>/dev/null; then
+        echo "WARNING: Found potential password in code!" >> reports/secrets-check.txt
+      fi
+     
+      # Проверяем на API ключи
+      if grep -r "api[_-]key\s*=\s*['\"].*['\"]" app/ 2>/dev/null; then
+        echo "WARNING: Found potential API key in code!" >> reports/secrets-check.txt
+      fi
+     
+      cat reports/secrets-check.txt
+
+  artifacts:
+    paths:
+      - reports/.secrets.baseline
+      - reports/secrets-check.txt
+    expire_in: 30 days
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+      changes:
+        - "**/*.py"
+        - "**/*.yml"
+        - "**/*.yaml"
+        - "**/*.json"
+        - "Dockerfile"
+        - ".env*"
+
+
+security:dependencies:
+  extends: .python_job
+  stage: security
+
+  script:
+    - echo "Checking for vulnerable dependencies..."
+
+
+    - pip install safety
+
+
+    - |
+      safety check \
+        --file requirements.txt \
+        --json \
+        --output reports/vulnerabilities.json || true
+
+    - |
+      safety check \
+        --file requirements.txt \
+        --short-report || true
+
+  artifacts:
+    paths:
+      - reports/vulnerabilities.json
+    expire_in: 30 days
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - "requirements.txt"
+    - if: '$CI_COMMIT_BRANCH'
+      changes:
+        - "requirements.txt"

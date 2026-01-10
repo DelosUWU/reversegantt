@@ -72,6 +72,19 @@ def get_current_user(
     return user
 
 
+
+@app.get("/health", tags=["health"])
+def health_check():
+
+    return {
+        "status": "healthy",
+        "service": "reversegantt",
+        "version": "1.0.0"
+    }
+
+
+
+
 @app.post("/register", response_model=schemas.UserRead)
 def register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
     if crud.get_user_by_email(db, payload.email):
@@ -500,3 +513,5 @@ def serve_frontend_page(page: str):
         raise HTTPException(status_code=404, detail="Страница не найдена")
 
     return FileResponse(page_path)
+
+
