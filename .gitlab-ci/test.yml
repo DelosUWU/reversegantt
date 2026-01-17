@@ -60,8 +60,8 @@ test:unit:
 
   services:
 
-    - postgres:15-alpine
-      alias: postgres
+  - name: postgres:15-alpine
+    alias: postgres
 
   variables:
     POSTGRES_DB: testdb

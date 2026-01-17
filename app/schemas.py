@@ -17,7 +17,7 @@ class UserRead(BaseModel):
     last_name: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class Token(BaseModel):
@@ -37,7 +37,7 @@ class ProjectRead(BaseModel):
     owner: Optional[UserRead]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TaskCreate(BaseModel):
@@ -61,7 +61,7 @@ class TaskRead(BaseModel):
     assigned_to: Optional[UserRead] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class TaskStatusUpdate(BaseModel):
     status: TaskStatusEnum
@@ -79,7 +79,7 @@ class CommentRead(BaseModel):
     task_id: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProjectMembershipCreate(BaseModel):
     user_email: EmailStr
@@ -91,7 +91,7 @@ class ProjectMembershipRead(BaseModel):
     user: UserRead
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProjectMembershipRoleUpdate(BaseModel):
     role: str
@@ -115,4 +115,4 @@ class ProjectInvitationRead(BaseModel):
     project: Optional[ProjectRead] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
